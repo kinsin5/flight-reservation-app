@@ -19,23 +19,49 @@ import {
   ReservationRepository,
 } from "./repositories";
 
+import { Logger } from "./logger";
+import { DomainError, InfrastructureError } from "./errors";
+import {
+  validateId,
+  validateCardNumber,
+  validateCVV,
+} from "./validators";
+
 export class SearchService implements ISearchService {
   constructor(private flightRepository: FlightRepository) {}
 
   wyszukajLoty(kryteria: KryteriaWyszukiwania): ILot[] {
-    return this.flightRepository.findAll().filter(lot => {
-      const pasujeTrasa =
-        !kryteria.trasa || lot.trasa === kryteria.trasa;
+    try {
+      Logger.info("Rozpoczęto wyszukiwanie lotów.");
 
-      const pasujeData =
-        !kryteria.data || lot.dataWylotu >= kryteria.data;
+      const wyniki = this.flightRepository
+        .findAll()
+        .filter(lot => {
+          const pasujeTrasa =
+            !kryteria.trasa || lot.trasa === kryteria.trasa;
 
-      const pasujeLiczbaPasazerow =
-        !kryteria.liczbaPasazerow ||
-        lot.dostepneMiejsca >= kryteria.liczbaPasazerow;
+          const pasujeData =
+            !kryteria.data || lot.dataWylotu >= kryteria.data;
 
-      return pasujeTrasa && pasujeData && pasujeLiczbaPasazerow;
-    });
+          const pasujeLiczbaPasazerow =
+            !kryteria.liczbaPasazerow ||
+            lot.dostepneMiejsca >= kryteria.liczbaPasazerow;
+
+          return (
+            pasujeTrasa &&
+            pasujeData &&
+            pasujeLiczbaPasazerow
+          );
+        });
+
+      Logger.info(`Znaleziono ${wyniki.length} lotów.`);
+      return wyniki;
+    } catch (error) {
+      Logger.error("Błąd podczas wyszukiwania lotów.", error);
+      throw new InfrastructureError(
+        "Nie udało się pobrać listy lotów."
+      );
+    }
   }
 }
 
@@ -49,60 +75,105 @@ export class RezerwacjaService implements IRezerwacjaService {
     idLotu: string,
     idUzytkownika: string
   ): IRezerwacja {
-    const lot = this.flightRepository.findById(idLotu);
+    try {
+      Logger.info("Rozpoczęto tworzenie rezerwacji.");
 
-    if (!lot) {
-      throw new Error("Nie znaleziono lotu.");
+      validateId(idLotu, "Id lotu");
+      validateId(idUzytkownika, "Id użytkownika");
+
+      const lot = this.flightRepository.findById(idLotu);
+
+      if (!lot) {
+        throw new DomainError("Nie znaleziono lotu.");
+      }
+
+      if (lot.dostepneMiejsca <= 0) {
+        throw new DomainError(
+          "Brak dostępnych miejsc na wybrany lot."
+        );
+      }
+
+      lot.dostepneMiejsca -= 1;
+
+      const rezerwacja: IRezerwacja = {
+        id: `RES-${Date.now()}`,
+        idLotu,
+        idUzytkownika,
+        status: "oczekujaca",
+        dataRezerwacji: new Date(),
+      };
+
+      this.reservationRepository.save(rezerwacja);
+
+      Logger.info(
+        `Utworzono rezerwację: ${rezerwacja.id}`
+      );
+
+      return rezerwacja;
+    } catch (error) {
+      Logger.error("Błąd podczas tworzenia rezerwacji.", error);
+      throw error;
     }
-
-    if (lot.dostepneMiejsca <= 0) {
-      throw new Error("Brak dostępnych miejsc na wybrany lot.");
-    }
-
-    lot.dostepneMiejsca -= 1;
-
-    const rezerwacja: IRezerwacja = {
-      id: `RES-${Date.now()}`,
-      idLotu,
-      idUzytkownika,
-      status: "oczekujaca",
-      dataRezerwacji: new Date(),
-    };
-
-    this.reservationRepository.save(rezerwacja);
-
-    return rezerwacja;
   }
 
   anulujRezerwacje(idRezerwacji: string): boolean {
-    const rezerwacja =
-      this.reservationRepository.findById(idRezerwacji);
+    try {
+      Logger.info("Rozpoczęto anulowanie rezerwacji.");
 
-    if (!rezerwacja) {
-      return false;
+      validateId(idRezerwacji, "Id rezerwacji");
+
+      const rezerwacja =
+        this.reservationRepository.findById(idRezerwacji);
+
+      if (!rezerwacja) {
+        throw new DomainError("Nie znaleziono rezerwacji.");
+      }
+
+      if (rezerwacja.status === "anulowana") {
+        throw new DomainError(
+          "Rezerwacja została już wcześniej anulowana."
+        );
+      }
+
+      rezerwacja.status = "anulowana";
+
+      const lot = this.flightRepository.findById(
+        rezerwacja.idLotu
+      );
+
+      if (lot) {
+        lot.dostepneMiejsca += 1;
+      }
+
+      this.reservationRepository.update(rezerwacja);
+
+      Logger.info(
+        `Anulowano rezerwację: ${idRezerwacji}`
+      );
+
+      return true;
+    } catch (error) {
+      Logger.error("Błąd podczas anulowania rezerwacji.", error);
+      throw error;
     }
-
-    if (rezerwacja.status === "anulowana") {
-      return false;
-    }
-
-    rezerwacja.status = "anulowana";
-
-    const lot = this.flightRepository.findById(rezerwacja.idLotu);
-
-    if (lot) {
-      lot.dostepneMiejsca += 1;
-    }
-
-    this.reservationRepository.update(rezerwacja);
-
-    return true;
   }
 
   pobierzSzczegolyRezerwacji(
     idRezerwacji: string
   ): IRezerwacja | null {
-    return this.reservationRepository.findById(idRezerwacji);
+    try {
+      Logger.info("Pobieranie szczegółów rezerwacji.");
+
+      validateId(idRezerwacji, "Id rezerwacji");
+
+      return this.reservationRepository.findById(idRezerwacji);
+    } catch (error) {
+      Logger.error(
+        "Błąd podczas pobierania szczegółów rezerwacji.",
+        error
+      );
+      throw error;
+    }
   }
 }
 
@@ -111,18 +182,28 @@ export class PlatnoscService implements IPlatnoscService {
     idRezerwacji: string,
     daneKarty: DaneKarty
   ): IPlatnosc {
-    const kartaPoprawna =
-      daneKarty.numer.length === 16 &&
-      daneKarty.cvv.length === 3 &&
-      daneKarty.dataWaznosci.length > 0;
+    try {
+      Logger.info("Rozpoczęto przetwarzanie płatności.");
 
-    return {
-      id: `PAY-${Date.now()}`,
-      idRezerwacji,
-      kwota: 0,
-      status: kartaPoprawna ? "zaksiegowana" : "odrzucona",
-      dataPlatnosci: new Date(),
-    };
+      validateId(idRezerwacji, "Id rezerwacji");
+      validateCardNumber(daneKarty.numer);
+      validateCVV(daneKarty.cvv);
+
+      const platnosc: IPlatnosc = {
+        id: `PAY-${Date.now()}`,
+        idRezerwacji,
+        kwota: 0,
+        status: "zaksiegowana",
+        dataPlatnosci: new Date(),
+      };
+
+      Logger.info(`Płatność zakończona: ${platnosc.id}`);
+
+      return platnosc;
+    } catch (error) {
+      Logger.error("Błąd podczas płatności.", error);
+      throw error;
+    }
   }
 }
 
@@ -132,11 +213,20 @@ export class PowiadomienieService {
     tresc: string,
     kanal: KanalPowiadomienia
   ): IPowiadomienie {
-    return {
-      id: `NOT-${Date.now()}`,
-      idUzytkownika,
-      tresc,
-      kanal,
-    };
+    try {
+      Logger.info("Wysyłanie powiadomienia.");
+
+      validateId(idUzytkownika, "Id użytkownika");
+
+      return {
+        id: `NOT-${Date.now()}`,
+        idUzytkownika,
+        tresc,
+        kanal,
+      };
+    } catch (error) {
+      Logger.error("Błąd podczas wysyłania powiadomienia.", error);
+      throw error;
+    }
   }
 }
