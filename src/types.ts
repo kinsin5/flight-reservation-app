@@ -32,3 +32,12 @@ export type DaneKarty = {
   dataWaznosci: string;
   cvv: string;
 };
+
+export type DanePrzelewu = {
+  numerRachunku: string;
+  tytul: string;
+};
+
+export type DanePlatnosci =
+  | DaneKarty
+  | DanePrzelewu;

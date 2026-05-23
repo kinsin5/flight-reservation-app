@@ -3,7 +3,7 @@ import {
   StatusPlatnosci,
   KanalPowiadomienia,
   KryteriaWyszukiwania,
-  DaneKarty
+  DanePlatnosci
 } from "./types";
 
 export interface ILot {
@@ -65,6 +65,15 @@ export interface IRezerwacjaService {
 export interface IPlatnoscService {
   przetworzPlatnosc(
     idRezerwacji: string,
-    daneKarty: DaneKarty
+    danePlatnosci: DanePlatnosci
+  ): IPlatnosc;
+}
+
+export interface IPlatnoscStrategy {
+  nazwa: string;
+
+  przetworz(
+    idRezerwacji: string,
+    danePlatnosci: DanePlatnosci
   ): IPlatnosc;
 }

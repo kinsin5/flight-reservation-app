@@ -1,4 +1,4 @@
-import { FlightEntity, CharterFlight } from "./entities";
+import { FlightBuilder } from "./builders";
 
 import {
   FlightRepository,
@@ -19,34 +19,33 @@ import {
   AnulujRezerwacjeUseCase,
 } from "./usecases";
 
+import {
+  BankTransferPaymentStrategy,
+  CardPaymentStrategy,
+} from "./strategies";
+
 const loty = [
-  new FlightEntity(
-    "LOT-1",
-    "Warszawa - Rzym",
-    new Date("2026-06-01T10:00:00"),
-    new Date("2026-06-01T12:30:00"),
-    599,
-    5
-  ),
-  new FlightEntity(
-    "LOT-2",
-    "Warszawa - Londyn",
-    new Date("2026-06-03T08:00:00"),
-    new Date("2026-06-03T10:15:00"),
-    449,
-    2
-  ),
-  new CharterFlight(
-    "LOT-3",
-    "Poznań - Barcelona",
-    new Date("2026-07-10T14:00:00"),
-    new Date("2026-07-10T17:00:00"),
-    799,
-    10,
-    "TravelSun",
-    "Wakacje",
-    false
-  ),
+  FlightBuilder.create("LOT-1")
+    .withRoute("Warszawa - Rzym")
+    .withDeparture(new Date("2026-06-01T10:00:00"))
+    .withArrival(new Date("2026-06-01T12:30:00"))
+    .withPrice(599)
+    .withSeats(5)
+    .buildRegular(),
+  FlightBuilder.create("LOT-2")
+    .withRoute("Warszawa - Londyn")
+    .withDeparture(new Date("2026-06-03T08:00:00"))
+    .withArrival(new Date("2026-06-03T10:15:00"))
+    .withPrice(449)
+    .withSeats(2)
+    .buildRegular(),
+  FlightBuilder.create("LOT-3")
+    .withRoute("Poznan - Barcelona")
+    .withDeparture(new Date("2026-07-10T14:00:00"))
+    .withArrival(new Date("2026-07-10T17:00:00"))
+    .withPrice(799)
+    .withSeats(10)
+    .buildCharter("TravelSun", "Wakacje"),
 ];
 
 const flightRepository = new FlightRepository(loty);
@@ -58,7 +57,9 @@ const rezerwacjaService = new RezerwacjaService(
   reservationRepository
 );
 const powiadomienieService = new PowiadomienieService();
-const platnoscService = new PlatnoscService();
+const platnoscService = new PlatnoscService(
+  new CardPaymentStrategy()
+);
 
 const wyszukajLotyUseCase =
   new WyszukajLotyUseCase(searchService);
@@ -80,7 +81,7 @@ const anulujRezerwacjeUseCase =
     powiadomienieService
   );
 
-console.log("WYSZUKIWANIE LOTÓW");
+console.log("WYSZUKIWANIE LOTOW");
 
 const znalezioneLoty = wyszukajLotyUseCase.execute({
   trasa: "Warszawa - Rzym",
@@ -98,9 +99,9 @@ const rezerwacja = utworzRezerwacjeUseCase.execute(
 
 console.log(rezerwacja);
 
-console.log("\nPŁATNOŚĆ");
+console.log("\nPLATNOSC KARTA");
 
-const platnosc = platnoscService.przetworzPlatnosc(
+const platnoscKarta = platnoscService.przetworzPlatnosc(
   rezerwacja.id,
   {
     numer: "1234567812345678",
@@ -109,9 +110,25 @@ const platnosc = platnoscService.przetworzPlatnosc(
   }
 );
 
-console.log(platnosc);
+console.log(platnoscKarta);
 
-console.log("\nSZCZEGÓŁY REZERWACJI");
+console.log("\nPLATNOSC PRZELEWEM");
+
+platnoscService.ustawStrategiePlatnosci(
+  new BankTransferPaymentStrategy()
+);
+
+const platnoscPrzelewem = platnoscService.przetworzPlatnosc(
+  rezerwacja.id,
+  {
+    numerRachunku: "12345678901234567890123456",
+    tytul: `Rezerwacja ${rezerwacja.id}`,
+  }
+);
+
+console.log(platnoscPrzelewem);
+
+console.log("\nSZCZEGOLY REZERWACJI");
 
 const szczegoly =
   pobierzSzczegolyUseCase.execute(rezerwacja.id);
@@ -127,7 +144,7 @@ const anulowano = anulujRezerwacjeUseCase.execute(
 
 console.log("Czy anulowano:", anulowano);
 
-console.log("\nSZCZEGÓŁY PO ANULOWANIU");
+console.log("\nSZCZEGOLY PO ANULOWANIU");
 
 console.log(
   pobierzSzczegolyUseCase.execute(rezerwacja.id)

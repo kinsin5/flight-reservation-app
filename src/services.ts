@@ -1,15 +1,16 @@
 import {
   ILot,
   IPlatnosc,
-  IRezerwacja,
-  ISearchService,
-  IRezerwacjaService,
   IPlatnoscService,
+  IPlatnoscStrategy,
   IPowiadomienie,
+  IRezerwacja,
+  IRezerwacjaService,
+  ISearchService,
 } from "./interfaces";
 
 import {
-  DaneKarty,
+  DanePlatnosci,
   KanalPowiadomienia,
   KryteriaWyszukiwania,
 } from "./types";
@@ -21,18 +22,15 @@ import {
 
 import { Logger } from "./logger";
 import { DomainError, InfrastructureError } from "./errors";
-import {
-  validateId,
-  validateCardNumber,
-  validateCVV,
-} from "./validators";
+import { validateId } from "./validators";
+import { CardPaymentStrategy } from "./strategies";
 
 export class SearchService implements ISearchService {
   constructor(private flightRepository: FlightRepository) {}
 
   wyszukajLoty(kryteria: KryteriaWyszukiwania): ILot[] {
     try {
-      Logger.info("Rozpoczęto wyszukiwanie lotów.");
+      Logger.info("Rozpoczeto wyszukiwanie lotow.");
 
       const wyniki = this.flightRepository
         .findAll()
@@ -54,12 +52,12 @@ export class SearchService implements ISearchService {
           );
         });
 
-      Logger.info(`Znaleziono ${wyniki.length} lotów.`);
+      Logger.info(`Znaleziono ${wyniki.length} lotow.`);
       return wyniki;
     } catch (error) {
-      Logger.error("Błąd podczas wyszukiwania lotów.", error);
+      Logger.error("Blad podczas wyszukiwania lotow.", error);
       throw new InfrastructureError(
-        "Nie udało się pobrać listy lotów."
+        "Nie udalo sie pobrac listy lotow."
       );
     }
   }
@@ -76,10 +74,10 @@ export class RezerwacjaService implements IRezerwacjaService {
     idUzytkownika: string
   ): IRezerwacja {
     try {
-      Logger.info("Rozpoczęto tworzenie rezerwacji.");
+      Logger.info("Rozpoczeto tworzenie rezerwacji.");
 
       validateId(idLotu, "Id lotu");
-      validateId(idUzytkownika, "Id użytkownika");
+      validateId(idUzytkownika, "Id uzytkownika");
 
       const lot = this.flightRepository.findById(idLotu);
 
@@ -89,7 +87,7 @@ export class RezerwacjaService implements IRezerwacjaService {
 
       if (lot.dostepneMiejsca <= 0) {
         throw new DomainError(
-          "Brak dostępnych miejsc na wybrany lot."
+          "Brak dostepnych miejsc na wybrany lot."
         );
       }
 
@@ -105,20 +103,18 @@ export class RezerwacjaService implements IRezerwacjaService {
 
       this.reservationRepository.save(rezerwacja);
 
-      Logger.info(
-        `Utworzono rezerwację: ${rezerwacja.id}`
-      );
+      Logger.info(`Utworzono rezerwacje: ${rezerwacja.id}`);
 
       return rezerwacja;
     } catch (error) {
-      Logger.error("Błąd podczas tworzenia rezerwacji.", error);
+      Logger.error("Blad podczas tworzenia rezerwacji.", error);
       throw error;
     }
   }
 
   anulujRezerwacje(idRezerwacji: string): boolean {
     try {
-      Logger.info("Rozpoczęto anulowanie rezerwacji.");
+      Logger.info("Rozpoczeto anulowanie rezerwacji.");
 
       validateId(idRezerwacji, "Id rezerwacji");
 
@@ -131,7 +127,7 @@ export class RezerwacjaService implements IRezerwacjaService {
 
       if (rezerwacja.status === "anulowana") {
         throw new DomainError(
-          "Rezerwacja została już wcześniej anulowana."
+          "Rezerwacja zostala juz wczesniej anulowana."
         );
       }
 
@@ -147,13 +143,11 @@ export class RezerwacjaService implements IRezerwacjaService {
 
       this.reservationRepository.update(rezerwacja);
 
-      Logger.info(
-        `Anulowano rezerwację: ${idRezerwacji}`
-      );
+      Logger.info(`Anulowano rezerwacje: ${idRezerwacji}`);
 
       return true;
     } catch (error) {
-      Logger.error("Błąd podczas anulowania rezerwacji.", error);
+      Logger.error("Blad podczas anulowania rezerwacji.", error);
       throw error;
     }
   }
@@ -162,14 +156,14 @@ export class RezerwacjaService implements IRezerwacjaService {
     idRezerwacji: string
   ): IRezerwacja | null {
     try {
-      Logger.info("Pobieranie szczegółów rezerwacji.");
+      Logger.info("Pobieranie szczegolow rezerwacji.");
 
       validateId(idRezerwacji, "Id rezerwacji");
 
       return this.reservationRepository.findById(idRezerwacji);
     } catch (error) {
       Logger.error(
-        "Błąd podczas pobierania szczegółów rezerwacji.",
+        "Blad podczas pobierania szczegolow rezerwacji.",
         error
       );
       throw error;
@@ -178,30 +172,38 @@ export class RezerwacjaService implements IRezerwacjaService {
 }
 
 export class PlatnoscService implements IPlatnoscService {
+  constructor(
+    private platnoscStrategy: IPlatnoscStrategy =
+      new CardPaymentStrategy()
+  ) {}
+
+  ustawStrategiePlatnosci(
+    platnoscStrategy: IPlatnoscStrategy
+  ): void {
+    this.platnoscStrategy = platnoscStrategy;
+  }
+
   przetworzPlatnosc(
     idRezerwacji: string,
-    daneKarty: DaneKarty
+    danePlatnosci: DanePlatnosci
   ): IPlatnosc {
     try {
-      Logger.info("Rozpoczęto przetwarzanie płatności.");
+      Logger.info("Rozpoczeto przetwarzanie platnosci.");
 
       validateId(idRezerwacji, "Id rezerwacji");
-      validateCardNumber(daneKarty.numer);
-      validateCVV(daneKarty.cvv);
 
-      const platnosc: IPlatnosc = {
-        id: `PAY-${Date.now()}`,
+      const platnosc = this.platnoscStrategy.przetworz(
         idRezerwacji,
-        kwota: 0,
-        status: "zaksiegowana",
-        dataPlatnosci: new Date(),
-      };
+        danePlatnosci
+      );
 
-      Logger.info(`Płatność zakończona: ${platnosc.id}`);
+      Logger.info(
+        `Platnosc zakonczona: ${platnosc.id}, strategia: ${this.platnoscStrategy.nazwa}`
+      );
 
       return platnosc;
     } catch (error) {
-      Logger.error("Błąd podczas płatności.", error);
+      Logger.error("Blad podczas platnosci.", error);
       throw error;
     }
   }
@@ -214,9 +216,9 @@ export class PowiadomienieService {
     kanal: KanalPowiadomienia
   ): IPowiadomienie {
     try {
-      Logger.info("Wysyłanie powiadomienia.");
+      Logger.info("Wysylanie powiadomienia.");
 
-      validateId(idUzytkownika, "Id użytkownika");
+      validateId(idUzytkownika, "Id uzytkownika");
 
       return {
         id: `NOT-${Date.now()}`,
@@ -225,7 +227,7 @@ export class PowiadomienieService {
         kanal,
       };
     } catch (error) {
-      Logger.error("Błąd podczas wysyłania powiadomienia.", error);
+      Logger.error("Blad podczas wysylania powiadomienia.", error);
       throw error;
     }
   }
